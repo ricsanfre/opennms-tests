@@ -1,0 +1,63 @@
+---
+version: '3'
+
+
+services:
+  database:
+    image: postgres:15
+    container_name: database
+    environment:
+      TZ: 'UTC'
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 's1cret0'
+    volumes:
+      - './postgres:/var/lib/postgresql/data'
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    ports:
+      - '5432:5432/tcp'
+  horizon:
+    depends_on:
+      - database
+    image: opennms/horizon:32.0.0
+    container_name: horizon
+    environment:
+      TZ: 'UTC'
+      POSTGRES_HOST: database
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 's1cret0'
+      OPENNMS_DBNAME: 'opennms-core-db'
+      OPENNMS_DBUSER: 'opennms'
+      OPENNMS_DBPASS: 'my-opennms-db-password'
+    volumes:
+      - ./data:/opennms-data
+      - ./etc:/opt/opennms/etc
+    command: ["-s"]
+    ports:
+      - '8980:8980/tcp'
+      - '8101:8101/tcp'
+      - '10514:10514/udp'
+    healthcheck:
+      test: [ 'CMD', 'curl', '-f', '-I', 'http://localhost:8980/opennms/login.jsp' ]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+
+  log-generator-syslog:
+    depends_on:
+      - horizon
+    image: mingrammer/flog
+    container_name: log-generator-syslog
+    command: flog -f rfc5424 -n 10 -l
+    logging:
+      driver: syslog
+      options:
+        syslog-address: "udp://localhost:10514"
+        syslog-format: rfc5424
+        env: dev
+        labels: tlv,michael-laptop
+        tag: "{{.Name}}-{{.ID}}"
